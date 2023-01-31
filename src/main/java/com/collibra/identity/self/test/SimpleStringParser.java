@@ -11,14 +11,19 @@ import org.parboiled.support.ParsingResult;
 import java.util.Scanner;
 
 // A parser that takes lower case string and converts to CustomObject with upper case.
-public class SimpleStringParser extends BaseParser<CustomString> {
+public class SimpleStringParser extends BaseParser<String> {
 
     public Rule start() {
-        return Sequence(anyChar(), EOI);
+        return Sequence(String(), push(match()), EOI);
     }
 
-    public Rule anyChar() {
-        return Sequence(ZeroOrMore(CharRange('a', 'z')), push(new CustomString(match())));
+    public Rule String() {
+        return Sequence('"', ZeroOrMore(FirstOf(
+                CharRange('a', 'z'),
+                        CharRange('A', 'Z'),
+                        CharRange('0', '9'),
+                        AnyOf("!#$%&'()*+, -./:;<=>?@[\\]^_`{|}~"))),
+                '"');
     }
 
     public static void main(String[] args) {
@@ -36,19 +41,5 @@ public class SimpleStringParser extends BaseParser<CustomString> {
             else
                 System.out.println(result.resultValue);
         }
-    }
-}
-
-class CustomString {
-    String input;
-    CustomString(String input) {
-        this.input = input.toUpperCase();
-    }
-
-    @Override
-    public String toString() {
-        return "CustomString{" +
-                "input='" + input + '\'' +
-                '}';
     }
 }

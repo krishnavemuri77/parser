@@ -1,17 +1,14 @@
 package com.collibra.identity.self.test;
 
 import org.parboiled.*;
-import org.parboiled.annotations.BuildParseTree;
 import org.parboiled.common.StringUtils;
 import org.parboiled.errors.ErrorUtils;
 import org.parboiled.parserunners.ReportingParseRunner;
 import org.parboiled.support.ParsingResult;
-import org.parboiled.support.Var;
+
 
 import java.util.Scanner;
-import java.util.function.Function;
 
-import static org.parboiled.support.ParseTreeUtils.printNodeTree;
 
 /**
  * FILTER    = attrExp
@@ -27,12 +24,82 @@ import static org.parboiled.support.ParseTreeUtils.printNodeTree;
  * filter=title pr
  * userType eq "Intern"
  */
-@BuildParseTree
 public class SimpleScimFilterParser extends BaseParser<Object> {
 
-//    Rule filter() {
-//        return attrExp();
-//    }
+    // * FILTER    = attrExp
+    Rule filter() {
+        return Sequence(attrExp(), EOI);
+    }
+
+    //attrExp   = (attrPath "pr") / (attrPath compareOp compValue)
+    Rule attrExp() {
+        return FirstOf(
+                Sequence(
+                        attrPath(),
+                        space(),
+                        IgnoreCase("pr"),
+                        push(new AttributePresentExpression(pop()))
+                ),
+                Sequence(
+                        attrPath(),
+                        space(),
+                        compareOp(),
+                        space(),
+                        compValue(),
+                        push(new AttributeEqualsExpression(pop(2), pop(1), pop()))
+                )
+        );
+    }
+
+    Rule compareOp() {
+        return Sequence(
+                FirstOf(
+                        IgnoreCase("eq"),
+                        IgnoreCase("ne"),
+                        IgnoreCase("co"),
+                        IgnoreCase("sw"),
+                        IgnoreCase("ew"),
+                        IgnoreCase("gt"),
+                        IgnoreCase("lt"),
+                        IgnoreCase("ge"),
+                        IgnoreCase("le")
+                ),
+                push(CompareOperator.valueOf(match().toLowerCase()))
+        );
+    }
+
+    Rule compValue() {
+        return Sequence(
+                FirstOf(
+                        IgnoreCase("false"),
+                        "null",
+                        IgnoreCase("true"),
+                        number(),
+                        string()
+                ),
+                push(match()));
+    }
+
+    // * attrPath  = [URI ":"] attrName *1subAttr
+    Rule attrPath() {
+        return Sequence(
+                attrName(),
+                Optional(subAttr()),
+                push(match().isEmpty() ? null : new SubAttr(pop())),
+                push(new AttributePath(pop(1), pop()))
+        );
+    }
+
+    // * ATTRNAME  = ALPHA *(nameChar)
+    Rule attrName() {
+        return Sequence(
+                alpha(),
+                ZeroOrMore(
+                        nameChar()
+                ),
+                push(new AttributeName(pop(), match()))
+        );
+    }
 
     Rule nameChar() {
         return FirstOf(
@@ -42,112 +109,31 @@ public class SimpleScimFilterParser extends BaseParser<Object> {
                 CharRange('a', 'z'), CharRange('A', 'Z'));
     }
 
-    public Rule alpha() {
-        return Sequence(FirstOf(CharRange('a', 'z'), CharRange('A', 'Z')), push(matchedChar()));
-    }
-
-    // works for positive cases and fails for negative
-    // to Error on -ve case input a* I've added TestNot(). should find a work around or extend the range of possibilities.
-    Rule attrName() {
-        return Sequence(alpha(), Sequence(ZeroOrMore(nameChar()), push(matchOrDefault("")), TestNot("*"), push(String.valueOf(pop(1)) + pop())));
-    }
-
     // * subAttr   = "." ATTRNAME
     Rule subAttr() {
-        return Sequence(Optional(".", attrName()), push(match().isEmpty() ? "" : "." + pop()), TestNot("."));
+        return Sequence(".", attrName());
     }
 
-    // * attrPath  = attrName *1subAttr
-    Rule attrPath() {
-        return Sequence(attrName(), subAttr(), push(String.valueOf(pop(1)) + pop()));
+    // pushes an alphabet on to the stack.
+    public Rule alpha() {
+        return Sequence(FirstOf(CharRange('a', 'z'), CharRange('A', 'Z')), push(match()));
     }
-
-    String getNameChars() {
-        return "-_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWZYX0123456789";
-    }
-
-
-    //  * ATTRNAME  = ALPHA *(nameChar)
-//    Rule attrName() {
-//        Var<String> nameChar = new Var();
-//        return Sequence(alpha(), ZeroOrMore(nameChar()), push(match()), new Action<>() {
-//            @Override
-//            public boolean run(Context<Object> context) {
-//                String matchedInout = match();
-//                return true;
-//            }
-//        });
-//        return Sequence(alpha(), push(match()), Sequence(ZeroOrMore(nameChar()), nameChar.set(matchOrDefault(""))), new Action<>() {
-//            @Override
-//            public boolean run(Context<Object> context) {
-//                if(!nameChar.get().isEmpty()) {
-//                    context.getValueStack().push(new AttributeName(pop(), nameChar.get()));
-//                } else {
-//                    context.getValueStack().push(new AttributeName(pop()));
-//                }
-//                return true;
-//            }
-//        });
-//    }
-
-    Rule compareOp() {
-        return FirstOf("eq", "ne", "co", "sw", "ew", "gt", "lt", "ge", "le");
-    }
-
-    Rule compValue() {
-        return FirstOf(
-                "false",
-                "null",
-                "true",
-                number()
-        );
-    }
-
-
-    //  * attrPath  = attrName *1subAttr
-//    Rule attrPath() {
-//        Var<SubAttr> subAttribute = new Var();
-//        return Sequence(attrName(), Optional(subAttr(subAttribute)), new Action<>() {
-//            @Override
-//            public boolean run(Context<Object> context) {
-//                if(subAttribute.get() != null) {
-//                    SubAttr subAttr = (SubAttr) subAttribute.get();
-//                    AttributeName attributeName = (AttributeName) pop();
-//                    if(subAttr.getValue().isEmpty()) {
-//                        context.getValueStack().push(new AttributePath(attributeName));
-//                    } else {
-//                        context.getValueStack().push(new AttributePath(attributeName, subAttr));
-//                    }
-//                } else {
-//                    AttributeName attributeName = (AttributeName) pop();
-//                    context.getValueStack().push(new AttributePath(attributeName));
-//                }
-//                return true;
-//            };
-//        });
-//    }
-
-    // attrExp   = (attrPath "pr") / (attrPath compareOp compValue)
-//    Rule attrExp() {
-//        return Sequence("(", attrPath(), space(), "pr", ")", push(new AttributePresentExpression(pop())));
-//                //Sequence("(", attrPath(), space(), compareOp(), space(), compValue(), ")", push(new AttributeEqualsExpression("Attribute equals Expression", "attribute")))
-//    }
 
     Rule number() {
         return OneOrMore(CharRange('0', '9'));
     }
 
+    public Rule string() {
+        return Sequence('"', ZeroOrMore(FirstOf(
+                        CharRange('a', 'z'),
+                        CharRange('A', 'Z'),
+                        CharRange('0', '9'),
+                        AnyOf("!#$%&'()*+, -./:;<=>?@[\\]^_`{|}~"))),
+                '"');
+    }
+
     public Rule space() {
         return ZeroOrMore(" ");
-    }
-
-    public Rule digit() {
-        return Sequence(CharRange('0', '9'), push(match()));
-    }
-
-
-    public Rule alphabets() {
-        return OneOrMore(FirstOf(CharRange('a', 'z'), CharRange('A', 'Z')));
     }
 
     public static void main(String[] args) {
@@ -160,22 +146,21 @@ public class SimpleScimFilterParser extends BaseParser<Object> {
             String input = new Scanner(System.in).nextLine();
             if (StringUtils.isEmpty(input)) break;
 
-            ParsingResult<?> result = new ReportingParseRunner(parser.attrPath()).run(input);
+            ParsingResult<?> result = new ReportingParseRunner(parser.filter()).run(input);
 
             if (!result.parseErrors.isEmpty())
                 System.out.println(ErrorUtils.printParseError(result.parseErrors.get(0)));
             else {
-                //System.out.println(((AttributePresentExpression)result.resultValue).getValue());
+                System.out.println(((Element) result.resultValue).getValue());
                 System.out.println(result.resultValue);
-                printNodeTree(result);
             }
         }
     }
 
 }
 
-class AttributePresentExpression {
-    String value;
+class AttributePresentExpression implements Element {
+
     private AttributePath attributePath;
 
     AttributePresentExpression(Object path) {
@@ -183,32 +168,7 @@ class AttributePresentExpression {
     }
 
     public String getValue() {
-        return attributePath.getValue() + " pr ";
-    }
-
-    @Override
-    public String toString() {
-        return "AttributePresentExpression{" +
-                "value='" + " pr " + '\'' +
-                ", attributePath=" + attributePath +
-                '}';
-    }
-}
-
-class AttributeEqualsExpression {
-    String value;
-    private AttributePath attributePath;
-    private Enum compareOperator;
-    private String compareValue;
-
-    AttributeEqualsExpression(AttributePath path, CompareOperator compareOperator, String value) {
-        this.attributePath = path;
-        this.compareOperator = compareOperator;
-        this.compareValue = value;
-    }
-
-    public String getValue() {
-        return attributePath + " pr ";
+        return "( " + attributePath.getValue() + " pr " + ")";
     }
 
     @Override
@@ -219,22 +179,46 @@ class AttributeEqualsExpression {
     }
 }
 
-class AttributeName {
+class AttributeEqualsExpression implements Element {
+    private AttributePath attributePath;
+    private Enum compareOperator;
+    private String compareValue;
 
-    String value;
-    private String alpha;
-    private String nameChar;
-
-    AttributeName(Object alpha) {
-        this.alpha = (String) alpha;
-    }
-
-    AttributeName(Object alpha, String nameChar) {
-        this(alpha);
-        this.nameChar = nameChar;
+    AttributeEqualsExpression(Object path, Object compareOperator, Object value) {
+        this.attributePath = (AttributePath) path;
+        this.compareOperator = (CompareOperator) compareOperator;
+        this.compareValue = (String) value;
     }
 
     public String getValue() {
+        return "( " + attributePath.getValue() + " " + compareOperator + " " + compareValue + " )";
+    }
+
+    @Override
+    public String toString() {
+        return "AttributeEqualsExpression{" +
+                "attributePath=" + attributePath +
+                ", compareOperator=" + compareOperator +
+                ", compareValue='" + compareValue + '\'' +
+                '}';
+    }
+}
+
+class AttributeName implements Element{
+
+    private String alpha;
+    private String nameChar;
+
+    AttributeName(Object alpha, Object nameChar) {
+        this.alpha = (String) alpha;
+        if (!((String) nameChar).isEmpty()) {
+            this.nameChar = (String) nameChar;
+        }
+    }
+
+    public String getValue() {
+        if(nameChar == null)
+            return alpha;
         return alpha + nameChar;
     }
 
@@ -247,33 +231,18 @@ class AttributeName {
     }
 }
 
-class NameChar {
+class SubAttr implements Element {
 
-    String value;
-
-    NameChar(Object value) {
-        this.value = (String) value;
-    }
-
-    @Override
-    public String toString() {
-        return "NameChar{" +
-                "value='" + value + '\'' +
-                '}';
-    }
-}
-
-class SubAttr {
-
-    String value;
     AttributeName attributeName;
 
     SubAttr(Object attributeName) {
-        this.attributeName = (AttributeName) attributeName;
+        if (attributeName != null) {
+            this.attributeName = (AttributeName) attributeName;
+        }
     }
 
     public String getValue() {
-        return "." + attributeName.getValue();
+        return attributeName == null ? "" : "."+ attributeName.getValue();
     }
 
     @Override
@@ -284,26 +253,19 @@ class SubAttr {
     }
 }
 
-class AttributePath {
+class AttributePath implements Element {
 
-    String value;
     private AttributeName attributeName;
     private SubAttr subAttr;
 
-    public AttributePath(AttributeName attributeName) {
-        this.attributeName = attributeName;
-    }
-
     public AttributePath(Object attributeName, Object subAttr) {
-        this((AttributeName) attributeName);
-        this.subAttr = (SubAttr) subAttr;
+        this.attributeName = (AttributeName) attributeName;
+        if(subAttr != null)
+            this.subAttr = (SubAttr) subAttr;
     }
 
     public String getValue() {
-        if (subAttr != null)
-            return attributeName.getValue() + subAttr.getValue();
-        else
-            return attributeName.getValue();
+        return subAttr == null ? attributeName.getValue() : attributeName.getValue() + subAttr.getValue();
     }
 
     @Override
@@ -317,5 +279,9 @@ class AttributePath {
 
 enum CompareOperator {
     eq, ne, co, sw, ew, gt, lt, ge, le;
+}
+
+interface Element {
+    String getValue();
 }
 
